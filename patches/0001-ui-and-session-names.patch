@@ -1,0 +1,70 @@
+diff --git a/default-plugins/compact-bar/src/line.rs b/default-plugins/compact-bar/src/line.rs
+index aae8aec..9e8f026 100644
+--- a/default-plugins/compact-bar/src/line.rs
++++ b/default-plugins/compact-bar/src/line.rs
+@@ -433,7 +433,7 @@ impl<'a> TabLinePrefixBuilder<'a> {
+     }
+ 
+     fn create_zellij_part(&self) -> LinePart {
+-        let prefix_text = " Zellij ";
++        let prefix_text = " ";
+         let colors = self.get_text_colors();
+         let text_style = if self.dimmed {
+             style!(colors.text, colors.background).italic()
+diff --git a/default-plugins/tab-bar/src/line.rs b/default-plugins/tab-bar/src/line.rs
+index d9f7a8d..c5ec6cb 100644
+--- a/default-plugins/tab-bar/src/line.rs
++++ b/default-plugins/tab-bar/src/line.rs
+@@ -204,7 +204,7 @@ fn tab_line_prefix(
+     dimmed: bool,
+     breadcrumb_ancestry: &[String],
+ ) -> (Vec<LinePart>, Option<(usize, usize)>) {
+-    let prefix_text = " Zellij ".to_string();
++    let prefix_text = " ".to_string();
+ 
+     let running_text_len = prefix_text.chars().count();
+     let text_color = palette.text_unselected.base;
+diff --git a/zellij-tile/src/shim.rs b/zellij-tile/src/shim.rs
+index 52a0c3f..cf87fe6 100644
+--- a/zellij-tile/src/shim.rs
++++ b/zellij-tile/src/shim.rs
+@@ -122,7 +122,7 @@ pub fn get_zellij_version() -> String {
+ /// Generates a random human-readable name using Zellij's curated word lists.
+ /// Returns a name in the format AdjectiveNoun (e.g., "BraveRustacean", "ZippyWeasel").
+ ///
+-/// This uses the same word lists as session name generation, providing
++/// This uses Zellij's curated word lists, providing
+ /// approximately 4,096 unique combinations.
+ pub fn generate_random_name() -> String {
+     let plugin_command = PluginCommand::GenerateRandomName;
+diff --git a/zellij-utils/src/sessions.rs b/zellij-utils/src/sessions.rs
+index 4c9fc76..9d15f3e 100644
+--- a/zellij-utils/src/sessions.rs
++++ b/zellij-utils/src/sessions.rs
+@@ -638,8 +638,12 @@ pub fn generate_unique_session_name() -> Option<String> {
+         },
+     };
+ 
+-    let name = get_name_generator()
+-        .take(1000)
++    let pid = std::process::id();
++    let name = (1..=1000)
++        .map(|index| match index {
++            1 => format!("session-{pid}"),
++            _ => format!("session-{pid}-{index}"),
++        })
+         .find(|name| !sessions.contains(name) && !dead_sessions.contains(name));
+ 
+     if let Some(name) = name {
+@@ -649,10 +653,7 @@ pub fn generate_unique_session_name() -> Option<String> {
+     }
+ }
+ 
+-/// Create a new random name generator
+-///
+-/// Used to provide a memorable handle for a session when users don't specify a session name when the session is
+-/// created.
++/// Create a new random human-readable name generator.
+ ///
+ /// Uses the list of adjectives and nouns defined below, with the intention of avoiding unfortunate
+ /// and offensive combinations. Care should be taken when adding or removing to either list due to the birthday paradox/

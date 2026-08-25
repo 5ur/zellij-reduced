@@ -1,0 +1,13 @@
+diff --git a/Cargo.toml b/Cargo.toml
+index db6efc9..abdd852 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -150,7 +150,7 @@ pkg-fmt = "tgz"
+ 
+ [features]
+ # See remarks in zellij_utils/Cargo.toml
+-default = ["plugins_from_target", "vendored_curl", "web_server_capability"]
++default = ["plugins_from_target", "vendored_curl"]
+ plugins_from_target = ["zellij-utils/plugins_from_target"]
+ disable_automatic_asset_installation = ["zellij-utils/disable_automatic_asset_installation"]
+ vendored_curl = ["zellij-utils/vendored_curl"]

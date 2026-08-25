@@ -1,0 +1,286 @@
+name: Build custom Zellij
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  resolve:
+    name: Resolve upstream main
+    runs-on: ubuntu-24.04
+    outputs:
+      upstream_sha: ${{ steps.resolve.outputs.upstream_sha }}
+      short_sha: ${{ steps.resolve.outputs.short_sha }}
+    steps:
+      - name: Resolve zellij-org/zellij main
+        id: resolve
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          upstream_sha="$({
+            git ls-remote --exit-code https://github.com/zellij-org/zellij.git refs/heads/main
+          } | awk 'NR == 1 { print $1 }')"
+
+          if [[ ! "$upstream_sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Could not resolve zellij-org/zellij main to a commit SHA"
+            exit 1
+          fi
+
+          echo "upstream_sha=$upstream_sha" >> "$GITHUB_OUTPUT"
+          echo "short_sha=${upstream_sha:0:12}" >> "$GITHUB_OUTPUT"
+          echo "Upstream Zellij commit: \`$upstream_sha\`" >> "$GITHUB_STEP_SUMMARY"
+
+  build:
+    name: Build ${{ matrix.name }}
+    needs: resolve
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux x86_64-v4
+            os: ubuntu-24.04
+            platform: linux
+            target: x86_64-unknown-linux-musl
+            cpu: x86-64-v4
+            archive: zellij-linux-x86_64-v4.tar.gz
+          - name: macOS Apple M5
+            os: macos-15
+            platform: macos
+            target: aarch64-apple-darwin
+            cpu: apple-m5
+            archive: zellij-macos-aarch64-m5.tar.gz
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Check out build repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check out exact upstream Zellij revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: zellij-org/zellij
+          ref: ${{ needs.resolve.outputs.upstream_sha }}
+          path: zellij-src
+          persist-credentials: false
+
+      - name: Verify upstream revision and apply patches
+        shell: bash
+        env:
+          UPSTREAM_SHA: ${{ needs.resolve.outputs.upstream_sha }}
+        run: |
+          set -euo pipefail
+          export LC_ALL=C
+
+          cd zellij-src
+
+          actual_sha="$(git rev-parse HEAD)"
+          if [[ "$actual_sha" != "$UPSTREAM_SHA" ]]; then
+            echo "::error::Expected upstream $UPSTREAM_SHA but checked out $actual_sha"
+            exit 1
+          fi
+
+          for patch in ../patches/*.patch; do
+            if [[ ! -f "$patch" ]]; then
+              echo "::error::No patch files found"
+              exit 1
+            fi
+            echo "Checking $patch"
+            git apply --check "$patch"
+            echo "Applying $patch"
+            git apply "$patch"
+          done
+
+          git diff --check
+
+      - name: Install Linux build dependencies
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends musl-tools protobuf-compiler
+
+      - name: Install macOS build dependencies
+        if: matrix.platform == 'macos'
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew install protobuf
+
+      - name: Prepare upstream Rust toolchain
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+          CPU: ${{ matrix.cpu }}
+        run: |
+          set -euo pipefail
+          cd zellij-src
+
+          rustup show active-toolchain
+          rustup target add wasm32-wasip1 "$TARGET"
+          rustc --version --verbose
+
+          if ! rustc --target "$TARGET" --print target-cpus \
+            | awk '{ print $1 }' \
+            | grep -Fqx -- "$CPU"; then
+            echo "::error::The upstream Rust toolchain does not support target-cpu=$CPU for $TARGET"
+            exit 1
+          fi
+
+      - name: Rebuild patched built-in bars
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd zellij-src
+
+          cargo build --locked --release --target wasm32-wasip1 \
+            -p tab-bar \
+            -p compact-bar
+
+          cp target/wasm32-wasip1/release/tab-bar.wasm \
+            zellij-utils/assets/plugins/tab-bar.wasm
+          cp target/wasm32-wasip1/release/compact-bar.wasm \
+            zellij-utils/assets/plugins/compact-bar.wasm
+
+      - name: Build optimized Zellij binary
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+          CPU: ${{ matrix.cpu }}
+        run: |
+          set -euo pipefail
+          cd zellij-src
+
+          target_env="$(printf '%s' "$TARGET" | tr '[:lower:]-' '[:upper:]_')"
+          rustflags_var="CARGO_TARGET_${target_env}_RUSTFLAGS"
+
+          env "$rustflags_var=-C target-cpu=$CPU" \
+            cargo build --locked --release --target "$TARGET" --bin zellij
+
+      - name: Package and verify release archive
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+          ARCHIVE: ${{ matrix.archive }}
+        run: |
+          set -euo pipefail
+          cd zellij-src
+
+          rm -rf package
+          mkdir package
+          cp "target/$TARGET/release/zellij" package/zellij
+          chmod 0755 package/zellij
+
+          tar -czf "$ARCHIVE" -C package zellij
+
+          entries="$(tar -tzf "$ARCHIVE")"
+          if [[ "$entries" != "zellij" ]]; then
+            echo "::error::$ARCHIVE must contain exactly one entry named zellij"
+            printf 'archive entries:\n%s\n' "$entries"
+            exit 1
+          fi
+
+      - name: Upload packaged binary
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-${{ matrix.platform }}
+          path: zellij-src/${{ matrix.archive }}
+          if-no-files-found: error
+          compression-level: 0
+
+  release:
+    name: Publish GitHub Release
+    needs:
+      - resolve
+      - build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download packaged binaries
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+
+      - name: Verify assets and generate checksums
+        id: verify
+        shell: bash
+        env:
+          UPSTREAM_SHA: ${{ needs.resolve.outputs.upstream_sha }}
+        run: |
+          set -euo pipefail
+
+          linux_archive="dist/zellij-linux-x86_64-v4.tar.gz"
+          macos_archive="dist/zellij-macos-aarch64-m5.tar.gz"
+
+          for archive in "$linux_archive" "$macos_archive"; do
+            if [[ ! -f "$archive" ]]; then
+              echo "::error::Missing expected release asset: $archive"
+              exit 1
+            fi
+
+            entries="$(tar -tzf "$archive")"
+            if [[ "$entries" != "zellij" ]]; then
+              echo "::error::$archive must contain exactly one entry named zellij"
+              exit 1
+            fi
+          done
+
+          mkdir -p verify/linux verify/macos
+          tar -xzf "$linux_archive" -C verify/linux
+          tar -xzf "$macos_archive" -C verify/macos
+
+          linux_binary_sha="$(sha256sum verify/linux/zellij | awk '{ print $1 }')"
+          macos_binary_sha="$(sha256sum verify/macos/zellij | awk '{ print $1 }')"
+          linux_archive_sha="$(sha256sum "$linux_archive" | awk '{ print $1 }')"
+          macos_archive_sha="$(sha256sum "$macos_archive" | awk '{ print $1 }')"
+
+          {
+            printf '%s  %s\n' "$linux_archive_sha" "zellij-linux-x86_64-v4.tar.gz"
+            printf '%s  %s\n' "$macos_archive_sha" "zellij-macos-aarch64-m5.tar.gz"
+          } > dist/SHA256SUMS
+
+          echo "linux_binary_sha=$linux_binary_sha" >> "$GITHUB_OUTPUT"
+          echo "macos_binary_sha=$macos_binary_sha" >> "$GITHUB_OUTPUT"
+          echo "linux_archive_sha=$linux_archive_sha" >> "$GITHUB_OUTPUT"
+          echo "macos_archive_sha=$macos_archive_sha" >> "$GITHUB_OUTPUT"
+
+          cat > release-notes.md <<EOF
+          Unofficial custom build of Zellij from upstream \`main\`.
+
+          Upstream Zellij commit: \`$UPSTREAM_SHA\`
+
+          - Linux: \`x86_64-unknown-linux-musl\`, Rust \`target-cpu=x86-64-v4\`
+            - binary SHA-256: \`$linux_binary_sha\`
+            - archive SHA-256: \`$linux_archive_sha\`
+          - macOS: \`aarch64-apple-darwin\`, Rust \`target-cpu=apple-m5\`
+            - binary SHA-256: \`$macos_binary_sha\`
+            - archive SHA-256: \`$macos_archive_sha\`
+
+          \`SHA256SUMS\` contains checksums for the two downloadable tar.gz assets.
+          EOF
+
+      - name: Publish release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHORT_SHA: ${{ needs.resolve.outputs.short_sha }}
+        run: |
+          set -euo pipefail
+
+          tag="zellij-main-${SHORT_SHA}-run-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+
+          gh release create "$tag" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "Custom Zellij ${SHORT_SHA}" \
+            --notes-file release-notes.md \
+            dist/zellij-linux-x86_64-v4.tar.gz \
+            dist/zellij-macos-aarch64-m5.tar.gz \
+            dist/SHA256SUMS
