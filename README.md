@@ -1,4 +1,4 @@
-This repository builds a small customized Zellij from upstream main
+This repository builds a small customized [Zellij}(https://github.com/zellij-org/zellij) from upstream main
 
 - reads and checks out the current main commit
 - applies `patches/*.patch` in order
