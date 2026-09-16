@@ -1,0 +1,26 @@
+diff --git a/default-plugins/compact-bar/src/line.rs b/default-plugins/compact-bar/src/line.rs
+index aae8aec..9e8f026 100644
+--- a/default-plugins/compact-bar/src/line.rs
++++ b/default-plugins/compact-bar/src/line.rs
+@@ -433,7 +433,7 @@ impl<'a> TabLinePrefixBuilder<'a> {
+     }
+ 
+     fn create_zellij_part(&self) -> LinePart {
+-        let prefix_text = " Zellij ";
++        let prefix_text = " ";
+         let colors = self.get_text_colors();
+         let text_style = if self.dimmed {
+             style!(colors.text, colors.background).italic()
+diff --git a/default-plugins/tab-bar/src/line.rs b/default-plugins/tab-bar/src/line.rs
+index d9f7a8d..c5ec6cb 100644
+--- a/default-plugins/tab-bar/src/line.rs
++++ b/default-plugins/tab-bar/src/line.rs
+@@ -204,7 +204,7 @@ fn tab_line_prefix(
+     dimmed: bool,
+     breadcrumb_ancestry: &[String],
+ ) -> (Vec<LinePart>, Option<(usize, usize)>) {
+-    let prefix_text = " Zellij ".to_string();
++    let prefix_text = " ".to_string();
+ 
+     let running_text_len = prefix_text.chars().count();
+     let text_color = palette.text_unselected.base;

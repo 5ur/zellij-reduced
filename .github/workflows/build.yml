@@ -67,6 +67,10 @@ jobs:
           path: zellij-src
           persist-credentials: false
 
+      - name: Check patch workflow behavior
+        shell: bash
+        run: python3 -B -m unittest discover -s tests -v
+
       - name: Verify upstream revision and apply patches
         shell: bash
         env:
@@ -83,16 +87,19 @@ jobs:
             exit 1
           fi
 
-          for patch in ../patches/*.patch; do
-            if [[ ! -f "$patch" ]]; then
-              echo "::error::No patch files found"
-              exit 1
-            fi
-            echo "Checking $patch"
-            git apply --check "$patch"
-            echo "Applying $patch"
-            git apply "$patch"
-          done
+          shopt -s nullglob
+          patches=(../patches/*.patch)
+          echo "Applying ${#patches[@]} patch(es) in filename order"
+          if (( ${#patches[@]} == 0 )); then
+            echo "No patches enabled; building unmodified upstream sources"
+          else
+            for patch in "${patches[@]}"; do
+              echo "Checking $patch"
+              git apply --check "$patch"
+              echo "Applying $patch"
+              git apply "$patch"
+            done
+          fi
 
           git diff --check
 
@@ -131,20 +138,38 @@ jobs:
             exit 1
           fi
 
-      - name: Rebuild patched built-in bars
+      - name: Rebuild built-in plugins
         shell: bash
         run: |
           set -euo pipefail
           cd zellij-src
 
-          cargo build --locked --release --target wasm32-wasip1 \
-            -p tab-bar \
-            -p compact-bar
+          # Release binaries embed assets/plugins/*.wasm, not plugin sources.
+          # Rebuild all bundled assets so patches to any plugin or shared crate
+          # are included without maintaining a second list in this workflow.
+          shopt -s nullglob
+          assets=(zellij-utils/assets/plugins/*.wasm)
+          if (( ${#assets[@]} == 0 )); then
+            echo "::error::No bundled plugin assets found; upstream layout changed"
+            exit 1
+          fi
+          packages=()
+          for asset in "${assets[@]}"; do
+            plugin="${asset##*/}"
+            plugin="${plugin%.wasm}"
+            if [[ ! -f "default-plugins/$plugin/Cargo.toml" ]]; then
+              echo "::error::No source manifest for bundled plugin $plugin"
+              exit 1
+            fi
+            packages+=(-p "$plugin")
+          done
 
-          cp target/wasm32-wasip1/release/tab-bar.wasm \
-            zellij-utils/assets/plugins/tab-bar.wasm
-          cp target/wasm32-wasip1/release/compact-bar.wasm \
-            zellij-utils/assets/plugins/compact-bar.wasm
+          cargo build --locked --release --target wasm32-wasip1 \
+            "${packages[@]}"
+
+          for asset in "${assets[@]}"; do
+            cp "target/wasm32-wasip1/release/${asset##*/}" "$asset"
+          done
 
       - name: Build optimized Zellij binary
         shell: bash
@@ -255,6 +280,7 @@ jobs:
           Unofficial custom build of Zellij from upstream \`main\`.
 
           Upstream Zellij commit: \`$UPSTREAM_SHA\`
+          Build configuration and patch set: https://github.com/$GITHUB_REPOSITORY/tree/$GITHUB_SHA
 
           - Linux: \`x86_64-unknown-linux-musl\`, Rust \`target-cpu=x86-64-v4\`
             - binary SHA-256: \`$linux_binary_sha\`
