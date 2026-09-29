@@ -102,7 +102,7 @@ class WorkflowTests(unittest.TestCase):
     def prepare_plugins(self):
         assets = self.source / "zellij-utils/assets/plugins"
         assets.mkdir(parents=True)
-        for name in ("tab-bar", "future-plugin"):
+        for name in ("bars", "future-plugin"):
             (assets / f"{name}.wasm").write_text("old embedded bytes")
             manifest = self.source / f"default-plugins/{name}/Cargo.toml"
             manifest.parent.mkdir(parents=True)
@@ -133,7 +133,7 @@ class WorkflowTests(unittest.TestCase):
     def test_every_bundled_plugin_is_rebuilt_and_embedded(self):
         assets = self.prepare_plugins()
         self.assert_ok(self.run_step("Rebuild built-in plugins"))
-        for name in ("tab-bar", "future-plugin"):
+        for name in ("bars", "future-plugin"):
             self.assertEqual((assets / f"{name}.wasm").read_text(), f"rebuilt {name}")
         args = (self.source / "cargo-args.txt").read_text().splitlines()
         self.assertEqual(args[:5], ["build", "--locked", "--release", "--target", "wasm32-wasip1"])
@@ -142,7 +142,16 @@ class WorkflowTests(unittest.TestCase):
         assets = self.prepare_plugins()
         self.env["FAIL_CARGO"] = "1"
         self.assertNotEqual(self.run_step("Rebuild built-in plugins").returncode, 0)
-        self.assertEqual((assets / "tab-bar.wasm").read_text(), "old embedded bytes")
+        self.assertEqual((assets / "bars.wasm").read_text(), "old embedded bytes")
+
+    def test_shared_test_fixture_is_not_built(self):
+        assets = self.prepare_plugins()
+        fixture = assets / "fixture-shared-plugin-for-tests.wasm"
+        fixture.write_text("test-only bytes")
+        self.assert_ok(self.run_step("Rebuild built-in plugins"))
+        self.assertEqual(fixture.read_text(), "test-only bytes")
+        self.assertNotIn("fixture-shared-plugin-for-tests",
+                         (self.source / "cargo-args.txt").read_text())
 
     def test_missing_plugin_source_fails_before_cargo(self):
         self.prepare_plugins()

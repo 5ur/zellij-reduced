@@ -52,8 +52,10 @@ for terminal shortcut routing because it is user-editable and naming differs ups
 Release binaries embed `zellij-utils/assets/plugins/*.wasm`. Applying a plugin's
 source patch alone does not update those bytes. The workflow discovers these
 assets, rebuilds their matching `default-plugins/<name>` packages together, and
-copies every rebuilt asset before compiling the binary. Missing sources or build
-outputs fail the job.
+copies every rebuilt asset before compiling the binary. Upstream's tab, status,
+and compact bars now share the `bars` package and `bars.wasm` asset. The
+`fixture-shared-plugin-for-tests.wasm` asset has no source package and is skipped.
+Missing sources or build outputs for buildable assets fail the job.
 
 This deliberately rebuilds all bundled plugins on each run, including with no
 patches. It costs CI compilation time but avoids maintaining a list of affected

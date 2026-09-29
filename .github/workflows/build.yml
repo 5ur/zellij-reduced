@@ -145,29 +145,35 @@ jobs:
           cd zellij-src
 
           # Release binaries embed assets/plugins/*.wasm, not plugin sources.
-          # Rebuild all bundled assets so patches to any plugin or shared crate
-          # are included without maintaining a second list in this workflow.
+          # Rebuild plugin assets so patches to any plugin or shared crate
+          # are included without maintaining a second package list.
           shopt -s nullglob
           assets=(zellij-utils/assets/plugins/*.wasm)
-          if (( ${#assets[@]} == 0 )); then
-            echo "::error::No bundled plugin assets found; upstream layout changed"
-            exit 1
-          fi
           packages=()
+          build_assets=()
           for asset in "${assets[@]}"; do
             plugin="${asset##*/}"
             plugin="${plugin%.wasm}"
+            # Upstream ships this test fixture without a Cargo package.
+            if [[ "$plugin" == fixture-shared-plugin-for-tests ]]; then
+              continue
+            fi
             if [[ ! -f "default-plugins/$plugin/Cargo.toml" ]]; then
               echo "::error::No source manifest for bundled plugin $plugin"
               exit 1
             fi
             packages+=(-p "$plugin")
+            build_assets+=("$asset")
           done
+          if (( ${#build_assets[@]} == 0 )); then
+            echo "::error::No buildable plugin assets found; upstream layout changed"
+            exit 1
+          fi
 
           cargo build --locked --release --target wasm32-wasip1 \
             "${packages[@]}"
 
-          for asset in "${assets[@]}"; do
+          for asset in "${build_assets[@]}"; do
             cp "target/wasm32-wasip1/release/${asset##*/}" "$asset"
           done
 
