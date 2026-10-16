@@ -1,12 +1,12 @@
 diff --git a/zellij-utils/src/shared.rs b/zellij-utils/src/shared.rs
 --- a/zellij-utils/src/shared.rs
 +++ b/zellij-utils/src/shared.rs
-@@ -69,7 +69,7 @@
- 
+@@ -136,7 +136,7 @@
  pub fn make_terminal_title(pane_title: &str) -> String {
+     let pane_title = crate::graphemes::strip_control_characters(pane_title);
      format!(
 -        "\u{1b}]0;{}{}\u{07}",
 +        "\u{1b}]0;󰷟 {}{}\u{07}",
          get_session_name()
-             .map(|n| if pane_title.is_empty() {
-                 format!("{}", n)
+             .map(|n| {
+                 let n = crate::graphemes::strip_control_characters(&n).into_owned();
