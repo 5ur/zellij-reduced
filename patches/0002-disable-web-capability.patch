@@ -1,12 +1,12 @@
 diff --git a/Cargo.toml b/Cargo.toml
 --- a/Cargo.toml
 +++ b/Cargo.toml
-@@ -184,7 +184,7 @@
+@@ -185,7 +185,7 @@
  
  [features]
  # See remarks in zellij_utils/Cargo.toml
--default = ["plugins_from_target", "vendored_curl", "web_server_capability", "window"]
-+default = ["plugins_from_target", "vendored_curl", "window"]
- window = ["dep:zellij-window"]
+-default = ["plugins_from_target", "vendored_curl", "web_server_capability", "terminal"]
++default = ["plugins_from_target", "vendored_curl", "terminal"]
+ terminal = ["dep:zellij-terminal"]
  plugins_from_target = ["zellij-utils/plugins_from_target"]
  disable_automatic_asset_installation = ["zellij-utils/disable_automatic_asset_installation"]
